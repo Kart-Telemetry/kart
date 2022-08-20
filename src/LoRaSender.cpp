@@ -19,7 +19,7 @@ void sendStringMessage(String outgoing)
     LoRa.write(outgoing.length()); // add payload length
     LoRa.print(outgoing);          // add payload
     LoRa.endPacket();              // finish packet and send it
-    delay(100);
+
     LoRa.receive();
 
     Serial.println("Transmitted message");
@@ -34,58 +34,6 @@ void sendMessage(DynamicJsonDocument doc)
     String output;
     serializeJson(doc, output);
     sendStringMessage(output);
-}
-
-void onReceive(int packetSize)
-{
-    if (packetSize == 0)
-        return; // if there's no packet, return
-
-    // read packet header bytes:
-    int recipient = LoRa.read();       // recipient address
-    byte sender = LoRa.read();         // sender address
-    byte incomingLength = LoRa.read(); // incoming msg length
-
-    String incoming = ""; // payload of packet
-
-    while (LoRa.available())
-    {                                  // can't use readString() in callback, so
-        incoming += (char)LoRa.read(); // add bytes one by one
-    }
-
-    if (incomingLength != incoming.length())
-    { // check length for error
-        Serial.println("error: message length does not match length");
-        return; // skip rest of function
-    }
-
-    Serial.println("Received from: 0x" + String(sender, HEX));
-
-    // if the recipient isn't this device or broadcast,
-    if (recipient != localAddress && recipient != broadcast)
-    {
-        Serial.println("This message is not for me.");
-        return; // skip rest of function
-    }
-
-    // if message is for this device, or broadcast, print details:
-    Serial.println("Received from: 0x" + String(sender, HEX));
-    Serial.println("Sent to: 0x" + String(recipient, HEX));
-    Serial.println("Message length: " + String(incomingLength));
-    Serial.println("Message: " + incoming);
-    Serial.println("RSSI: " + String(LoRa.packetRssi()));
-    Serial.println();
-
-    DynamicJsonDocument idoc(1024);
-    deserializeJson(idoc, incoming);
-
-    if (idoc["type"] == "message")
-    {
-        DynamicJsonDocument doc(1024);
-        doc["type"] = "message_ack";
-        doc["message"] = idoc["message"];
-        sendMessage(doc);
-    }
 }
 
 void setup()
@@ -103,8 +51,6 @@ void setup()
             ;
     }
 
-    LoRa.onReceive(onReceive);
-    LoRa.receive();
     Serial.println("LoRa init succeeded.");
 }
 
@@ -135,5 +81,55 @@ void loop()
 
         last = millis();
         Serial.println();
+    }
+
+    // try to parse packet
+    int packetSize = LoRa.parsePacket();
+    if (packetSize)
+    {
+        // read packet header bytes:
+        int recipient = LoRa.read();       // recipient address
+        byte sender = LoRa.read();         // sender address
+        byte incomingLength = LoRa.read(); // incoming msg length
+
+        String incoming = ""; // payload of packet
+
+        while (LoRa.available())
+        {                                  // can't use readString() in callback, so
+            incoming += (char)LoRa.read(); // add bytes one by one
+        }
+
+        if (incomingLength != incoming.length())
+        { // check length for error
+            Serial.println("error: message length does not match length");
+            return; // skip rest of function
+        }
+
+        Serial.println("Received from: 0x" + String(sender, HEX));
+
+        // if the recipient isn't this device or broadcast,
+        if (recipient != localAddress && recipient != broadcast)
+        {
+            Serial.println("This message is not for me.");
+            return; // skip rest of function
+        }
+
+        // if message is for this device, or broadcast, print details:
+        Serial.println("Sent to: 0x" + String(recipient, HEX));
+        Serial.println("Message length: " + String(incomingLength));
+        Serial.println("Message: " + incoming);
+        Serial.println("RSSI: " + String(LoRa.packetRssi()));
+        Serial.println();
+
+        DynamicJsonDocument idoc(1024);
+        deserializeJson(idoc, incoming);
+
+        if (idoc["type"] == "command")
+        {
+            DynamicJsonDocument doc(1024);
+            doc["type"] = "command_ack";
+            doc["content"] = idoc;
+            sendMessage(doc);
+        }
     }
 }
